@@ -1,0 +1,107 @@
+#include <stdio.h>
+
+
+int adc_to_percent(int adc, int adc_max, int *out_percent)
+{
+    long product;
+    long percent;
+
+ 
+    if (out_percent == NULL)    /* Null output pointer               */
+        return -1;
+    if (adc_max <= 0)           /* Division by zero / nonsense range */
+        return -1;
+    if (adc < 0)                /* Negative reading is invalid       */
+        return -1;
+    if (adc > adc_max)          /* Reading exceeds full scale        */
+        return -1;
+
+   
+    product = (long)adc * 100L + (long)(adc_max / 2);
+    percent  = product / (long)adc_max;
+
+    /* --- Clamp to [0, 100] --- */
+    if (percent < 0)
+        percent = 0;
+    if (percent > 100)
+        percent = 100;
+
+    *out_percent = (int)percent;
+    return 0;
+}
+
+
+typedef struct {
+    int  adc;
+    int  adc_max;
+    int  expected_ret;
+    int  expected_pct;   /* ignored when expected_ret == -1 */
+    const char *note;
+} TestCase;
+
+int main(void)
+{
+    int pass = 0, fail = 0;
+
+    TestCase tests[] = {
+        {    0, 4095,  0,   0, "Lower bound"              },
+        { 4095, 4095,  0, 100, "Upper bound"              },
+        { 2048, 4095,  0,  50, "Mid-scale (rounded)"      },
+        { 1023, 1023,  0, 100, "Edge: adc == adc_max"     },
+        { 1100, 1023, -1,  -1, "Invalid: adc > adc_max"   },
+        {  500,    0, -1,  -1, "Invalid: adc_max == 0"    },
+        {  205, 4095,  0,   5, "Rounding check"           },
+        {   -1, 4095, -1,  -1, "Invalid: negative adc"    },
+        {    0, -100, -1,  -1, "Invalid: negative adc_max"},
+        {  512, 1023,  0,  50, "~50% on 10-bit ADC"       },
+    };
+
+    int n = (int)(sizeof(tests) / sizeof(tests[0]));
+
+    printf("%-4s %-6s %-8s %-12s %-12s %-12s %-12s %s\n",
+           "#", "adc", "adc_max",
+           "exp_ret", "got_ret",
+           "exp_pct", "got_pct",
+           "Result / Note");
+    printf("%s\n",
+           "--------------------------------------------------------------"
+           "----------------------------");
+
+    for (int i = 0; i < n; i++) {
+        int pct = -999;
+        int ret = adc_to_percent(tests[i].adc, tests[i].adc_max, &pct);
+
+        /* Check return value */
+        int ret_ok  = (ret == tests[i].expected_ret);
+        /* Check percent only when a success is expected */
+        int pct_ok  = (tests[i].expected_ret == -1)
+                      ? 1
+                      : (pct == tests[i].expected_pct);
+
+        int ok = ret_ok && pct_ok;
+        ok ? pass++ : fail++;
+
+        /* Display */
+        char got_pct_str[16], exp_pct_str[16];
+        if (tests[i].expected_ret == -1)
+            snprintf(exp_pct_str, sizeof(exp_pct_str), "—");
+        else
+            snprintf(exp_pct_str, sizeof(exp_pct_str), "%d", tests[i].expected_pct);
+
+        if (ret == -1)
+            snprintf(got_pct_str, sizeof(got_pct_str), "—");
+        else
+            snprintf(got_pct_str, sizeof(got_pct_str), "%d", pct);
+
+        printf("%-4d %-6d %-8d %-12d %-12d %-12s %-12s [%s] %s\n",
+               i + 1,
+               tests[i].adc, tests[i].adc_max,
+               tests[i].expected_ret, ret,
+               exp_pct_str, got_pct_str,
+               ok ? "PASS" : "FAIL",
+               tests[i].note);
+    }
+
+    printf("\n%d / %d tests passed.\n", pass, pass + fail);
+    return (fail == 0) ? 0 : 1;
+}
